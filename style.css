@@ -52,11 +52,8 @@ h1 {
 }
 
 #cropper-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    /* No longer used for the main video cropper */
+    display: none;
 }
 
 .crop-box {
@@ -166,6 +163,20 @@ h1 {
     font-weight: bold;
     margin-bottom: 10px;
     font-size: 1.1em;
+}
+
+.quadrant-cropper-wrapper {
+    position: relative;
+    width: 100%;
+    background-color: #000;
+    margin-bottom: 10px;
+    line-height: 0; /* remove space below canvas */
+}
+
+.quadrant-cropper-wrapper canvas {
+    width: 100%;
+    height: auto;
+    display: block;
 }
 
 .quadrant canvas {

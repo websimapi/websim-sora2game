@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         sourceVideo.addEventListener('loadedmetadata', () => {
             cropperContainer.style.display = 'block';
-            initializeCropBoxes();
+            cropperOverlay.style.display = 'none'; // Hide main overlay
             renderQuadrants();
             saveButton.style.display = 'inline-block';
             outputContainer.style.display = 'none';
@@ -43,26 +43,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function initializeCropBoxes() {
-        cropperOverlay.innerHTML = '';
-        cropBoxElements = [];
-        quadrantsData.forEach((quad, index) => {
-            const box = document.createElement('div');
-            box.className = 'crop-box';
-            box.dataset.index = index;
-            box.innerHTML = `
-                <div class="crop-handle top-left"></div>
-                <div class="crop-handle top-right"></div>
-                <div class="crop-handle bottom-left"></div>
-                <div class="crop-handle bottom-right"></div>
-            `;
-            cropperOverlay.appendChild(box);
-            cropBoxElements.push(box);
-            updateBoxFromData(index);
-            makeInteractive(box, index);
-        });
+        // This function is now part of renderQuadrants
     }
 
     function updateBoxFromData(index) {
+        if (!cropBoxElements[index]) return;
         const box = cropBoxElements[index];
         const crop = quadrantsData[index].crop;
         box.style.left = `${crop.x * 100}%`;
@@ -78,30 +63,46 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         canvasElements = [];
+        cropBoxElements = [];
 
         quadrantsData.forEach((quadrant, index) => {
             const quadrantElement = document.createElement('div');
             quadrantElement.className = 'quadrant';
             quadrantElement.innerHTML = `
                 <div class="quadrant-header">${quadrant.name}</div>
-                <canvas></canvas>
+                <div class="quadrant-cropper-wrapper">
+                    <canvas class="video-preview-canvas"></canvas>
+                </div>
                 <input type="text" class="label-input" placeholder="Enter animation label (e.g., 'jump')">
             `;
             
+            const cropperWrapper = quadrantElement.querySelector('.quadrant-cropper-wrapper');
             const canvas = quadrantElement.querySelector('canvas');
             const labelInput = quadrantElement.querySelector('.label-input');
             
-            // Set canvas dimensions based on video crop
+            // Set canvas dimensions based on video aspect ratio
             const videoWidth = sourceVideo.videoWidth;
             const videoHeight = sourceVideo.videoHeight;
-            canvas.width = videoWidth * quadrant.crop.w;
-            canvas.height = videoHeight * quadrant.crop.h;
-            // A width of 0 can cause issues with aspect-ratio
-            if(canvas.width > 0 && canvas.height > 0) {
-                 canvas.style.aspectRatio = `${canvas.width} / ${canvas.height}`;
-            }
+            canvas.width = videoWidth;
+            canvas.height = videoHeight;
+            canvas.style.aspectRatio = `${videoWidth} / ${videoHeight}`;
 
             canvasElements.push(canvas);
+
+            // Create and append crop box
+            const box = document.createElement('div');
+            box.className = 'crop-box';
+            box.dataset.index = index;
+            box.innerHTML = `
+                <div class="crop-handle top-left"></div>
+                <div class="crop-handle top-right"></div>
+                <div class="crop-handle bottom-left"></div>
+                <div class="crop-handle bottom-right"></div>
+            `;
+            cropperWrapper.appendChild(box);
+            cropBoxElements.push(box);
+            updateBoxFromData(index);
+            makeInteractive(box, index);
 
             labelInput.addEventListener('input', (event) => {
                 quadrantsData[index].label = event.target.value;
@@ -115,8 +116,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function drawQuadrants() {
         const contexts = canvasElements.map(c => c.getContext('2d'));
-        const vW = sourceVideo.videoWidth;
-        const vH = sourceVideo.videoHeight;
         
         function drawFrame() {
             if (sourceVideo.paused || sourceVideo.ended) {
@@ -125,16 +124,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             contexts.forEach((ctx, i) => {
-                const q = quadrantsData[i];
-                const crop = q.crop;
                 if (canvasElements[i].width > 0 && canvasElements[i].height > 0) {
-                    ctx.drawImage(
-                        sourceVideo,
-                        crop.x * vW, crop.y * vH, crop.w * vW, crop.h * vH,
-                        0, 0, canvasElements[i].width, canvasElements[i].height
-                    );
-                } else {
-                    ctx.clearRect(0, 0, canvasElements[i].width, canvasElements[i].height);
+                    // Draw the full video frame onto each canvas
+                    ctx.drawImage(sourceVideo, 0, 0, canvasElements[i].width, canvasElements[i].height);
                 }
             });
             
@@ -146,26 +138,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateCropData(index, newCrop) {
         quadrantsData[index].crop = newCrop;
-        
-        // Update canvas size
-        const canvas = canvasElements[index];
-        const videoWidth = sourceVideo.videoWidth;
-        const videoHeight = sourceVideo.videoHeight;
-        const newCanvasWidth = videoWidth * newCrop.w;
-        const newCanvasHeight = videoHeight * newCrop.h;
-
-        if (canvas.width !== newCanvasWidth) canvas.width = newCanvasWidth;
-        if (canvas.height !== newCanvasHeight) canvas.height = newCanvasHeight;
-       
-        if(newCanvasWidth > 0 && newCanvasHeight > 0) {
-            canvas.style.aspectRatio = `${newCanvasWidth} / ${newCanvasHeight}`;
-        }
     }
     
     function makeInteractive(box, index) {
         let mode = '';
         let startX, startY, startLeft, startTop, startWidth, startHeight;
-        const rect = () => cropperOverlay.getBoundingClientRect();
+        
+        const getParentRect = () => box.parentElement.getBoundingClientRect();
         
         function onDown(e) {
             e.preventDefault();
@@ -187,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
             startY = clientY;
             
             const boxRect = box.getBoundingClientRect();
-            const parentRect = rect();
+            const parentRect = getParentRect();
             startLeft = (boxRect.left - parentRect.left) / parentRect.width;
             startTop = (boxRect.top - parentRect.top) / parentRect.height;
             startWidth = boxRect.width / parentRect.width;
@@ -205,7 +184,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            const parentRect = rect();
+            const parentRect = getParentRect();
+            if (parentRect.width === 0 || parentRect.height === 0) return;
+
             const dx = (clientX - startX) / parentRect.width;
             const dy = (clientY - startY) / parentRect.height;
 
@@ -218,14 +199,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 const minSize = 0.05; // 5% minimum size
                 if (mode.includes('left')) {
                     const newW = startWidth - dx;
-                    if (newW > minSize) {
+                    if (newW > minSize && startLeft + dx >= 0) {
                         x = startLeft + dx;
                         w = newW;
                     }
                 }
                 if (mode.includes('top')) {
                     const newH = startHeight - dy;
-                    if (newH > minSize) {
+                    if (newH > minSize && startTop + dy >= 0) {
                         y = startTop + dy;
                         h = newH;
                     }
@@ -237,6 +218,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     h = Math.max(minSize, startHeight + dy);
                 }
                 // Boundary checks
+                if (x < 0) { w += x; x = 0; }
+                if (y < 0) { h += y; y = 0; }
                 if (x + w > 1) w = 1 - x;
                 if (y + h > 1) h = 1 - y;
             }
