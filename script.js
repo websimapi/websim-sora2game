@@ -56,6 +56,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let useOutlineDetection = true;
     let autoDetectedColors = [{}, {}, {}, {}]; // Per-quadrant auto color
 
+    let backgroundModel = null; // New: To store stats about the selected background color
+
     let chromaKeyColors = [
         { r: 0, g: 255, b: 0, enabled: true },
         { r: 0, g: 0, b: 255, enabled: false }
@@ -69,6 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
             { r: 0, g: 255, b: 0, enabled: true },
             { r: 0, g: 0, b: 255, enabled: false }
         ];
+        backgroundModel = null; // Reset the advanced model
         chromaKeyColorInput1.value = '#00ff00';
         chromaKeyColorInput2.value = '#0000ff';
         regionColorInfo.style.display = 'none';
@@ -84,11 +87,12 @@ document.addEventListener('DOMContentLoaded', () => {
     advancedChromaToggle.addEventListener('change', (e) => {
         advancedModeEnabled = e.target.checked;
         // Hide manual color pickers in advanced mode to reduce confusion
-        colorControl1.style.display = advancedModeEnabled ? 'none' : 'flex';
-        const color2Visible = chromaKeyColors[1].enabled && !advancedModeEnabled;
+        const manualControlsVisible = !advancedModeEnabled || !backgroundModel;
+        colorControl1.style.display = manualControlsVisible ? 'flex' : 'none';
+        const color2Visible = chromaKeyColors[1].enabled && manualControlsVisible;
         colorControl2.style.display = color2Visible ? 'flex' : 'none';
-        addColorBtn.style.display = (chromaKeyColors[1].enabled || advancedModeEnabled) ? 'none' : 'inline-block';
-        regionColorInfo.style.display = 'none';
+        addColorBtn.style.display = (chromaKeyColors[1].enabled || !manualControlsVisible) ? 'none' : 'inline-block';
+        regionColorInfo.style.display = backgroundModel ? 'flex' : 'none';
     });
     outlineDetectionToggle.addEventListener('change', (e) => {
         useOutlineDetection = e.target.checked;
@@ -165,8 +169,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Create an offscreen canvas for this quadrant for pixel manipulation
             const offscreenCanvas = document.createElement('canvas');
-            offscreenCanvas.width = sWidth;
-            offscreenCanvas.height = sHeight;
+            offscreenCanvas.width = canvas.width;
+            offscreenCanvas.height = canvas.height;
             offscreenCanvases[index] = offscreenCanvas;
 
             const box = document.createElement('div');
@@ -202,6 +206,120 @@ document.addEventListener('DOMContentLoaded', () => {
         box.style.width = `${crop.w * 100}%`;
         box.style.height = `${crop.h * 100}%`;
     }
+
+    // --- Advanced Background Removal Pipeline ---
+
+    function sobelEdgeDetection(imageData) {
+        const { data, width, height } = imageData;
+        const grayscale = new Uint8ClampedArray(width * height);
+        for (let i = 0; i < data.length; i += 4) {
+            grayscale[i / 4] = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+        }
+
+        const sobelData = new Uint8ClampedArray(width * height);
+        const Gx = [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]];
+        const Gy = [[-1, -2, -1], [0, 0, 0], [1, 2, 1]];
+
+        for (let y = 1; y < height - 1; y++) {
+            for (let x = 1; x < width - 1; x++) {
+                let gx = 0, gy = 0;
+                for (let ky = -1; ky <= 1; ky++) {
+                    for (let kx = -1; kx <= 1; kx++) {
+                        const pixelVal = grayscale[(y + ky) * width + (x + kx)];
+                        gx += pixelVal * Gx[ky + 1][kx + 1];
+                        gy += pixelVal * Gy[ky + 1][kx + 1];
+                    }
+                }
+                const magnitude = Math.sqrt(gx * gx + gy * gy);
+                sobelData[y * width + x] = magnitude > 255 ? 255 : magnitude;
+            }
+        }
+        return sobelData;
+    }
+    
+    function createCharacterMask(edgeData, width, height) {
+        // 1. Threshold the edge data to find the black outline
+        const outlineMask = new Uint8Array(width * height);
+        for(let i = 0; i < edgeData.length; i++) {
+            if (edgeData[i] < blackLineThreshold) { // This assumes sobel was run on a non-inverted grayscale
+                 outlineMask[i] = 1; // 1 represents a potential outline pixel
+            }
+        }
+
+        // 2. Flood-fill from the borders to find everything "outside" the character
+        const outsideMask = new Uint8Array(width * height);
+        const queue = [];
+        // Add border pixels to queue
+        for(let x = 0; x < width; x++) {
+            if(outlineMask[x] === 0) { queue.push([x,0]); outsideMask[x] = 1; }
+            if(outlineMask[(height-1)*width+x] === 0) { queue.push([x,height-1]); outsideMask[(height-1)*width+x] = 1; }
+        }
+        for(let y = 0; y < height; y++) {
+            if(outlineMask[y*width] === 0) { queue.push([0,y]); outsideMask[y*width] = 1; }
+            if(outlineMask[y*width+width-1] === 0) { queue.push([width-1,y]); outsideMask[y*width+width-1] = 1; }
+        }
+        
+        let head = 0;
+        while(head < queue.length) {
+            const [x, y] = queue[head++];
+            const neighbors = [[x, y - 1], [x + 1, y], [x, y + 1], [x - 1, y]];
+            for (const [nx, ny] of neighbors) {
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                    const nIdx = ny * width + nx;
+                    if (outsideMask[nIdx] === 0 && outlineMask[nIdx] === 0) {
+                        outsideMask[nIdx] = 1;
+                        queue.push([nx, ny]);
+                    }
+                }
+            }
+        }
+        
+        // The character mask is the inverse of the outside mask
+        const characterMask = new Uint8Array(width * height);
+        for(let i=0; i<outsideMask.length; i++) {
+            characterMask[i] = 1 - outsideMask[i];
+        }
+        
+        return characterMask;
+    }
+
+
+    function advancedChromaKeyRemove(imageData, characterMask) {
+        if (!backgroundModel) return;
+
+        const { data, width, height } = imageData;
+        const { mean, stdDev } = backgroundModel;
+        
+        const thresholdMultiplier = chromaKeyThreshold / 25; // Map slider value to a multiplier
+
+        const lowerBound = {
+            r: mean.r - stdDev.r * thresholdMultiplier,
+            g: mean.g - stdDev.g * thresholdMultiplier,
+            b: mean.b - stdDev.b * thresholdMultiplier
+        };
+        const upperBound = {
+            r: mean.r + stdDev.r * thresholdMultiplier,
+            g: mean.g + stdDev.g * thresholdMultiplier,
+            b: mean.b + stdDev.b * thresholdMultiplier
+        };
+
+        for (let i = 0; i < data.length; i += 4) {
+            const idx = i / 4;
+            // Remove if outside the character AND it matches the background color profile
+            if (characterMask[idx] === 0) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+
+                if (r >= lowerBound.r && r <= upperBound.r &&
+                    g >= lowerBound.g && g <= upperBound.g &&
+                    b >= lowerBound.b && b <= upperBound.b) {
+                    data[i + 3] = 0;
+                }
+            }
+        }
+    }
+
 
     // --- Flood Fill Background Removal ---
     function floodFillRemoveBackground(imageData, backgroundColor) {
@@ -366,27 +484,40 @@ document.addEventListener('DOMContentLoaded', () => {
                         const offscreenCanvas = offscreenCanvases[i];
                         const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
                         
-                        if (offscreenCanvas.width !== mainSWidth || offscreenCanvas.height !== mainSHeight) {
-                            offscreenCanvas.width = mainSWidth;
-                            offscreenCanvas.height = mainSHeight;
+                        // Ensure offscreen canvas is the correct size for the main crop
+                        const targetW = Math.max(1, Math.round(mainSWidth));
+                        const targetH = Math.max(1, Math.round(mainSHeight));
+                        if (offscreenCanvas.width !== targetW || offscreenCanvas.height !== targetH) {
+                            offscreenCanvas.width = targetW;
+                            offscreenCanvas.height = targetH;
                         }
 
-                        offscreenCtx.drawImage(sourceVideo, mainSx, mainSy, mainSWidth, mainSHeight, 0, 0, mainSWidth, mainSHeight);
-                        const frame = offscreenCtx.getImageData(0, 0, mainSWidth, mainSHeight);
-                        
-                        if (advancedModeEnabled) {
-                            const detectedColor = detectBackgroundColor(frame, i);
-                            if (detectedColor) {
-                                if (useOutlineDetection) {
-                                    floodFillRemoveBackground(frame, detectedColor);
-                                } else {
-                                    simpleChromaKeyRemove(frame, [detectedColor]);
+                        offscreenCtx.drawImage(sourceVideo, mainSx, mainSy, mainSWidth, mainSHeight, 0, 0, targetW, targetH);
+                        const frame = offscreenCtx.getImageData(0, 0, targetW, targetH);
+                         
+                        if (advancedModeEnabled && backgroundModel) {
+                            if (useOutlineDetection) {
+                                // New advanced pipeline
+                                const grayscaleFrame = new ImageData(new Uint8ClampedArray(frame.data), targetW, targetH);
+                                for(let j=0; j < grayscaleFrame.data.length; j+=4) {
+                                    const L = grayscaleFrame.data[j]*0.2126 + grayscaleFrame.data[j+1]*0.7152 + grayscaleFrame.data[j+2]*0.0722;
+                                    grayscaleFrame.data[j] = grayscaleFrame.data[j+1] = grayscaleFrame.data[j+2] = L;
                                 }
+                                const edgeData = sobelEdgeDetection(grayscaleFrame);
+                                const charMask = createCharacterMask(edgeData, targetW, targetH);
+                                advancedChromaKeyRemove(frame, charMask);
+                            } else {
+                                // Advanced mode without outline detection (just color range)
+                                const emptyMask = new Uint8Array(targetW * targetH).fill(0); // Treat everything as "outside"
+                                advancedChromaKeyRemove(frame, emptyMask);
                             }
-                        } else {
+                        } else { // Fallback to original simple methods
                              if (useOutlineDetection) {
-                                const primaryColor = chromaKeyColors.find(c => c.enabled);
-                                if(primaryColor) floodFillRemoveBackground(frame, primaryColor);
+                                let activeColor = chromaKeyColors.find(c => c.enabled);
+                                if (advancedModeEnabled) { // but no background model selected
+                                    activeColor = detectBackgroundColor(frame, i);
+                                }
+                                if(activeColor) floodFillRemoveBackground(frame, activeColor);
                             } else {
                                 simpleChromaKeyRemove(frame, chromaKeyColors);
                             }
@@ -425,6 +556,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (rgb) {
             chromaKeyColors[0] = { ...chromaKeyColors[0], ...rgb };
         }
+        backgroundModel = null; // Invalidate advanced model if manual color is changed
+        regionColorInfo.style.display = 'none';
     });
 
     chromaKeyColorInput2.addEventListener('input', (e) => {
@@ -498,6 +631,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     chromaKeyColorInput2.value = hexColor;
                 }
 
+                // Invalidate advanced model if a manual color is picked
+                backgroundModel = null;
+                regionColorInfo.style.display = 'none';
+                colorControl1.style.display = advancedModeEnabled ? 'none' : 'flex';
+
                 overlay.style.cursor = '';
                 overlay.removeEventListener('click', pickColor);
                 // For touch, we might need a different event
@@ -568,38 +706,39 @@ document.addEventListener('DOMContentLoaded', () => {
                 const imageData = tempCtx.getImageData(0, 0, canvasWidth, canvasHeight);
                 const data = imageData.data;
                 
-                const colorSet = new Set();
-                const quantizationFactor = 4; // 16 levels per channel (4096 total colors)
+                let sumR = 0, sumG = 0, sumB = 0;
+                let sumSqR = 0, sumSqG = 0, sumSqB = 0;
+                const pixelCount = data.length / 4;
 
                 for (let i = 0; i < data.length; i += 4) {
-                    const r = data[i] >> quantizationFactor;
-                    const g = data[i+1] >> quantizationFactor;
-                    const b = data[i+2] >> quantizationFactor;
-                    // Create a single number to represent the quantized color for the Set
-                    colorSet.add((r << 16) | (g << 8) | b);
+                    const r = data[i], g = data[i+1], b = data[i+2];
+                    sumR += r; sumG += g; sumB += b;
+                    sumSqR += r*r; sumSqG += g*g; sumSqB += b*b;
                 }
-
-                if (colorSet.size === 0) return;
-
-                const newColors = [];
-                for (const packedColor of colorSet) {
-                    const r = ((packedColor >> 16) & 0xFF) << quantizationFactor;
-                    const g = ((packedColor >> 8) & 0xFF) << quantizationFactor;
-                    const b = (packedColor & 0xFF) << quantizationFactor;
-                    newColors.push({ r, g, b, enabled: true });
-                }
-
-                chromaKeyColors = newColors;
                 
+                const meanR = sumR / pixelCount;
+                const meanG = sumG / pixelCount;
+                const meanB = sumB / pixelCount;
+
+                const stdDevR = Math.sqrt(sumSqR / pixelCount - meanR * meanR);
+                const stdDevG = Math.sqrt(sumSqG / pixelCount - meanG * meanG);
+                const stdDevB = Math.sqrt(sumSqB / pixelCount - meanB * meanB);
+
+                backgroundModel = {
+                    mean: { r: meanR, g: meanG, b: meanB },
+                    stdDev: { r: stdDevR, g: stdDevG, b: stdDevB }
+                };
+
                 // Update UI
                 colorControl1.style.display = 'none';
                 colorControl2.style.display = 'none';
                 addColorBtn.style.display = 'none';
                 regionColorInfo.style.display = 'flex';
-                regionColorCount.textContent = `${chromaKeyColors.length} colors selected from region.`;
-
+                regionColorCount.textContent = `Background calibrated from region.`;
+                
             } catch (err) {
                 console.error("Error processing selected region:", err);
+                backgroundModel = null;
             }
         };
 
