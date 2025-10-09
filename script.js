@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const eyedropperBtns = document.querySelectorAll('.eyedropper-btn');
     const mainThresholdInput = document.getElementById('chroma-key-threshold-main');
     const mainThresholdValue = document.getElementById('threshold-value-main');
+    const selectRegionBtn = document.getElementById('select-region-btn');
     
     // Advanced feature toggles
     const advancedChromaToggle = document.getElementById('advanced-chroma-toggle');
@@ -486,6 +487,114 @@ document.addEventListener('DOMContentLoaded', () => {
             overlay.addEventListener('click', pickColor, { once: true });
             overlay.addEventListener('touchend', pickColor, { once: true });
         });
+    });
+
+    // --- New: Select Region Logic ---
+    selectRegionBtn.addEventListener('click', () => {
+        const overlay = document.getElementById('cropper-overlay');
+        overlay.style.cursor = 'crosshair';
+
+        let startX, startY;
+        let selectionBox = document.createElement('div');
+        selectionBox.id = 'selection-box';
+        overlay.appendChild(selectionBox);
+
+        const onMove = (e) => {
+            e.preventDefault();
+            const rect = overlay.getBoundingClientRect();
+            let currentX = e.touches ? e.touches[0].clientX : e.clientX;
+            let currentY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            const x = Math.min(startX, currentX) - rect.left;
+            const y = Math.min(startY, currentY) - rect.top;
+            const width = Math.abs(currentX - startX);
+            const height = Math.abs(currentY - startY);
+
+            selectionBox.style.left = `${x}px`;
+            selectionBox.style.top = `${y}px`;
+            selectionBox.style.width = `${width}px`;
+            selectionBox.style.height = `${height}px`;
+        };
+
+        const onUp = (e) => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('touchmove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            document.removeEventListener('touchend', onUp);
+            
+            overlay.style.cursor = '';
+
+            const overlayRect = overlay.getBoundingClientRect();
+            const boxRect = selectionBox.getBoundingClientRect();
+            selectionBox.remove();
+            
+            if (boxRect.width < 2 || boxRect.height < 2) return; // Ignore tiny selections
+
+            const videoX = ((boxRect.left - overlayRect.left) / overlayRect.width) * sourceVideo.videoWidth;
+            const videoY = ((boxRect.top - overlayRect.top) / overlayRect.height) * sourceVideo.videoHeight;
+            const videoW = (boxRect.width / overlayRect.width) * sourceVideo.videoWidth;
+            const videoH = (boxRect.height / overlayRect.height) * sourceVideo.videoHeight;
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = Math.round(videoW);
+            tempCanvas.height = Math.round(videoH);
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            tempCtx.drawImage(sourceVideo, videoX, videoY, videoW, videoH, 0, 0, tempCanvas.width, tempCanvas.height);
+            
+            try {
+                const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                const data = imageData.data;
+                let totalR = 0, totalG = 0, totalB = 0;
+                
+                for (let i = 0; i < data.length; i += 4) {
+                    totalR += data[i];
+                    totalG += data[i+1];
+                    totalB += data[i+2];
+                }
+                
+                const pixelCount = data.length / 4;
+                const avgR = Math.round(totalR / pixelCount);
+                const avgG = Math.round(totalG / pixelCount);
+                const avgB = Math.round(totalB / pixelCount);
+                
+                const avgColor = { r: avgR, g: avgG, b: avgB };
+                chromaKeyColors[0] = { ...chromaKeyColors[0], ...avgColor };
+                
+                const hexColor = `#${avgR.toString(16).padStart(2, '0')}${avgG.toString(16).padStart(2, '0')}${avgB.toString(16).padStart(2, '0')}`;
+                chromaKeyColorInput1.value = hexColor;
+
+            } catch (err) {
+                console.error("Error processing selected region:", err);
+            }
+        };
+
+        const onDown = (e) => {
+            e.preventDefault();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            startX = clientX;
+            startY = clientY;
+
+            const rect = overlay.getBoundingClientRect();
+            selectionBox.style.left = `${startX - rect.left}px`;
+            selectionBox.style.top = `${startY - rect.top}px`;
+            selectionBox.style.width = '0px';
+            selectionBox.style.height = '0px';
+            selectionBox.style.display = 'block';
+
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('touchmove', onMove, { passive: false });
+            document.addEventListener('mouseup', onUp);
+            document.addEventListener('touchend', onUp);
+            
+            // Remove this listener after it's been used once.
+            overlay.removeEventListener('mousedown', onDown);
+            overlay.removeEventListener('touchstart', onDown);
+        };
+
+        overlay.addEventListener('mousedown', onDown);
+        overlay.addEventListener('touchstart', onDown);
     });
 
 
