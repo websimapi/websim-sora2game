@@ -17,9 +17,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const addColorBtn = document.getElementById('add-color-btn');
     const removeColor2Btn = document.getElementById('remove-color-2-btn');
     const eyedropperBtns = document.querySelectorAll('.eyedropper-btn');
+    const mainThresholdInput = document.getElementById('chroma-key-threshold-main');
+    const mainThresholdValue = document.getElementById('threshold-value-main');
+    
+    // Remove individual threshold controls as we now have one main one
+    document.getElementById('chroma-key-threshold')?.parentElement.remove();
 
-    // Remove global threshold elements as they will be per-color
-    document.getElementById('chroma-key-threshold').parentElement.remove();
 
     // Main cropper lines
     const verticalLine = document.getElementById('vertical-line');
@@ -42,42 +45,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let chromaKeyEnabled = false;
     let chromaKeyColors = [
-        { r: 0, g: 255, b: 0, enabled: true, threshold: 40 },
-        { r: 0, g: 0, b: 255, enabled: false, threshold: 40 }
+        { r: 0, g: 255, b: 0, enabled: true },
+        { r: 0, g: 0, b: 255, enabled: false }
     ];
+    let chromaKeyThreshold = 40;
     
     const blackLineThreshold = 50; // R, G, B values must all be below this to be a "black line"
 
     // --- Initial UI Setup ---
-    function setupColorControls() {
-        [colorControl1, colorControl2].forEach((control, index) => {
-            const existingControls = control.querySelector('label, input[type=color], button');
-            if(control.querySelector('.threshold-control')) return; // Already setup
-
-            const thresholdDiv = document.createElement('div');
-            thresholdDiv.className = 'threshold-control';
-            thresholdDiv.style.width = '100%';
-            thresholdDiv.style.display = 'flex';
-            thresholdDiv.style.alignItems = 'center';
-            thresholdDiv.style.gap = '10px';
-            thresholdDiv.innerHTML = `
-                <label for="chroma-key-threshold-${index + 1}">Threshold:</label>
-                <input type="range" id="chroma-key-threshold-${index + 1}" min="0" max="200" value="${chromaKeyColors[index].threshold}">
-                <span id="threshold-value-${index + 1}">${chromaKeyColors[index].threshold}</span>
-            `;
-            control.appendChild(thresholdDiv);
-
-            const thresholdInput = thresholdDiv.querySelector('input');
-            const thresholdSpan = thresholdDiv.querySelector('span');
-
-            thresholdInput.addEventListener('input', (e) => {
-                const newThreshold = parseInt(e.target.value, 10);
-                chromaKeyColors[index].threshold = newThreshold;
-                thresholdSpan.textContent = newThreshold;
-            });
-        });
-    }
-    setupColorControls();
+    mainThresholdInput.addEventListener('input', (e) => {
+        chromaKeyThreshold = parseInt(e.target.value, 10);
+        mainThresholdValue.textContent = chromaKeyThreshold;
+    });
 
     videoUpload.addEventListener('change', (event) => {
         const file = event.target.files[0];
@@ -183,6 +162,83 @@ document.addEventListener('DOMContentLoaded', () => {
         box.style.height = `${crop.h * 100}%`;
     }
 
+    // --- Flood Fill Background Removal ---
+    function floodFillRemoveBackground(imageData) {
+        const { data, width, height } = imageData;
+        if (width === 0 || height === 0) return;
+
+        const visited = new Uint8Array(width * height);
+        const isOutline = new Uint8Array(width * height);
+
+        // 1. Identify outline pixels
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const i = (y * width + x) * 4;
+                if (data[i] < blackLineThreshold && data[i + 1] < blackLineThreshold && data[i + 2] < blackLineThreshold) {
+                    isOutline[y * width + x] = 1;
+                }
+            }
+        }
+        
+        // 2. Flood fill from corners
+        const queue = [];
+        const startPoints = [
+            [0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]
+        ];
+
+        startPoints.forEach(([x, y]) => {
+            const idx = y * width + x;
+            if (!visited[idx] && !isOutline[idx]) {
+                queue.push([x, y]);
+                visited[idx] = 1;
+            }
+        });
+
+        let head = 0;
+        while(head < queue.length) {
+            const [x, y] = queue[head++];
+            const idx = y * width + x;
+            
+            // Mark for removal
+            data[idx * 4 + 3] = 0;
+
+            const neighbors = [[x, y - 1], [x + 1, y], [x, y + 1], [x - 1, y]];
+            for (const [nx, ny] of neighbors) {
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                    const nIdx = ny * width + nx;
+                    if (!visited[nIdx] && !isOutline[nIdx]) {
+                        visited[nIdx] = 1;
+                        queue.push([nx, ny]);
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Simpler Chroma Key for uniform backgrounds ---
+    function simpleChromaKeyRemove(imageData) {
+        const { data, width, height } = imageData;
+        if (width === 0 || height === 0) return;
+        
+        const activeColors = chromaKeyColors.filter(c => c.enabled);
+        if (activeColors.length === 0) return;
+
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            
+            for (const color of activeColors) {
+                const distance = Math.sqrt((r - color.r)**2 + (g - color.g)**2 + (b - color.b)**2);
+                if (distance < chromaKeyThreshold) {
+                    data[i + 3] = 0; // Make transparent
+                    break;
+                }
+            }
+        }
+    }
+
+
     function drawQuadrants() {
         const contexts = canvasElements.map(c => c.getContext('2d'));
         
@@ -216,7 +272,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         const offscreenCanvas = offscreenCanvases[i];
                         const offscreenCtx = offscreenCanvas.getContext('2d');
                         
-                        // Resize offscreen canvas if needed
                         if (offscreenCanvas.width !== mainSWidth || offscreenCanvas.height !== mainSHeight) {
                             offscreenCanvas.width = mainSWidth;
                             offscreenCanvas.height = mainSHeight;
@@ -224,61 +279,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
                         offscreenCtx.drawImage(sourceVideo, mainSx, mainSy, mainSWidth, mainSHeight, 0, 0, mainSWidth, mainSHeight);
                         const frame = offscreenCtx.getImageData(0, 0, mainSWidth, mainSHeight);
-                        const data = frame.data;
-                        const width = frame.width;
-                        const activeColors = chromaKeyColors.filter(c => c.enabled);
-
-                        for (let j = 0; j < data.length; j += 4) {
-                            const red = data[j];
-                            const green = data[j + 1];
-                            const blue = data[j + 2];
-                            
-                            let removePixel = false;
-                            for (const color of activeColors) {
-                                const distance = Math.sqrt(
-                                    Math.pow(red - color.r, 2) +
-                                    Math.pow(green - color.g, 2) +
-                                    Math.pow(blue - color.b, 2)
-                                );
-
-                                if (distance < color.threshold) {
-                                    removePixel = true;
-                                    break;
-                                }
-                            }
-                            
-                            if (removePixel) {
-                                // Smart outline detection: check neighbors
-                                const x = (j / 4) % width;
-                                const y = Math.floor((j / 4) / width);
-                                let isNearBlackLine = false;
-
-                                // Check 8 neighbors
-                                for (let dy = -1; dy <= 1; dy++) {
-                                    for (let dx = -1; dx <= 1; dx++) {
-                                        if (dx === 0 && dy === 0) continue;
-                                        const nx = x + dx;
-                                        const ny = y + dy;
-
-                                        if (nx >= 0 && nx < width && ny >= 0 && ny < frame.height) {
-                                            const ni = (ny * width + nx) * 4;
-                                            const nr = data[ni];
-                                            const ng = data[ni + 1];
-                                            const nb = data[ni + 2];
-                                            if (nr < blackLineThreshold && ng < blackLineThreshold && nb < blackLineThreshold) {
-                                                isNearBlackLine = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    if (isNearBlackLine) break;
-                                }
-
-                                if (!isNearBlackLine) {
-                                    data[j + 3] = 0; // Set alpha to 0 only if not near a black line
-                                }
-                            }
-                        }
+                        
+                        // Use the new flood fill algorithm
+                        floodFillRemoveBackground(frame);
+                        
                         offscreenCtx.putImageData(frame, 0, 0);
                         ctx.drawImage(offscreenCanvas, 0, 0, destWidth, destHeight);
                      } else {

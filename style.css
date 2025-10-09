@@ -59,8 +59,16 @@ h1 {
 #chroma-key-controls .color-control-group {
     width: 100%;
     justify-content: space-between;
-    flex-wrap: wrap; /* Allow wrapping for threshold slider */
+    flex-wrap: nowrap; /* Prevent wrapping of color inputs/buttons */
     row-gap: 5px; /* Add gap for wrapped items */
+}
+
+#chroma-key-controls .threshold-control {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-grow: 1; /* Allow it to take space */
 }
 
 #chroma-key-controls label {
