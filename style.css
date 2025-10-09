@@ -33,14 +33,21 @@ h1 {
     background-color: #166fe5;
 }
 
-#segments-container {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
+#quadrants-container {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
     margin-top: 30px;
 }
 
-.segment {
+@media (max-width: 600px) {
+    #quadrants-container {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+}
+
+.quadrant {
     background-color: white;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -48,23 +55,18 @@ h1 {
     text-align: left;
 }
 
-.segment-header {
+.quadrant-header {
     font-weight: bold;
     margin-bottom: 10px;
     font-size: 1.1em;
 }
 
-.segment-time {
-    font-size: 0.9em;
-    color: #606770;
-    margin-bottom: 10px;
-}
-
-.segment video {
+.quadrant canvas {
     width: 100%;
     border-radius: 6px;
     background-color: #000;
     display: block;
+    aspect-ratio: 16 / 9; /* Default aspect ratio */
 }
 
 .label-input {
@@ -109,4 +111,3 @@ h1 {
     white-space: pre-wrap;
     word-wrap: break-word;
 }
-
