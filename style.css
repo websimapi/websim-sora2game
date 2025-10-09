@@ -52,8 +52,12 @@ h1 {
 }
 
 #cropper-overlay {
-    /* No longer used for the main video cropper */
-    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 5;
 }
 
 .crop-box {
@@ -114,7 +118,6 @@ h1 {
     height: 100%;
     cursor: ew-resize;
     transform: translateX(-50%);
-    display: none; /* Hiding old lines */
 }
 
 #horizontal-line {
@@ -124,7 +127,6 @@ h1 {
     height: 4px;
     cursor: ns-resize;
     transform: translateY(-50%);
-    display: none; /* Hiding old lines */
 }
 
 /* For better touch interaction */
