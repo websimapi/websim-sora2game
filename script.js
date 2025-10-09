@@ -6,6 +6,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const outputContainer = document.getElementById('output-container');
     const jsonOutput = document.getElementById('json-output');
     const cropperContainer = document.getElementById('cropper-container');
+    const chromaKeyControls = document.getElementById('chroma-key-controls');
+    const chromaKeyToggle = document.getElementById('chroma-key-toggle');
+    const chromaKeyColorInput = document.getElementById('chroma-key-color');
+    const chromaKeyThresholdInput = document.getElementById('chroma-key-threshold');
+    const thresholdValueSpan = document.getElementById('threshold-value');
+    const eyedropperBtn = document.getElementById('eyedropper-btn');
 
     // Main cropper lines
     const verticalLine = document.getElementById('vertical-line');
@@ -23,7 +29,12 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
 
     let canvasElements = [];
+    let offscreenCanvases = {};
     let cropBoxElements = [];
+
+    let chromaKeyEnabled = false;
+    let chromaKeyColor = { r: 0, g: 255, b: 0 };
+    let chromaKeyThreshold = 40;
 
     videoUpload.addEventListener('change', (event) => {
         const file = event.target.files[0];
@@ -34,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         sourceVideo.addEventListener('loadedmetadata', () => {
             cropperContainer.style.display = 'block';
+            chromaKeyControls.style.display = 'block';
             mainSplit = { x: 0.5, y: 0.5 }; // Reset split on new video
             updateMainLines();
             renderQuadrants();
@@ -58,6 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
 
         canvasElements = [];
+        offscreenCanvases = {};
         cropBoxElements = [];
 
         quadrantsData.forEach((quadrant, index) => {
@@ -86,6 +99,12 @@ document.addEventListener('DOMContentLoaded', () => {
             canvas.style.aspectRatio = `${sWidth} / ${sHeight}`;
 
             canvasElements.push(canvas);
+
+            // Create an offscreen canvas for this quadrant for pixel manipulation
+            const offscreenCanvas = document.createElement('canvas');
+            offscreenCanvas.width = sWidth;
+            offscreenCanvas.height = sHeight;
+            offscreenCanvases[index] = offscreenCanvas;
 
             const box = document.createElement('div');
             box.className = 'crop-box';
@@ -137,34 +156,54 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!canvasElements[i] || canvasElements[i].width === 0 || canvasElements[i].height === 0) return;
 
                 const mainCrop = getMainCropForQuadrant(i);
-                const subCrop = quadrantsData[i].subCrop;
                 
-                const finalCrop = {
-                    x: mainCrop.x + subCrop.x * mainCrop.w,
-                    y: mainCrop.y + subCrop.y * mainCrop.h,
-                    w: mainCrop.w * subCrop.w,
-                    h: mainCrop.h * subCrop.h,
-                };
-                
-                const sx = finalCrop.x * videoWidth;
-                const sy = finalCrop.y * videoHeight;
-                const sWidth = finalCrop.w * videoWidth;
-                const sHeight = finalCrop.h * videoHeight;
+                const mainSx = mainCrop.x * videoWidth;
+                const mainSy = mainCrop.y * videoHeight;
+                const mainSWidth = mainCrop.w * videoWidth;
+                const mainSHeight = mainCrop.h * videoHeight;
 
                 const canvas = canvasElements[i];
                 const destWidth = canvas.width;
                 const destHeight = canvas.height;
                 
                 ctx.clearRect(0, 0, destWidth, destHeight);
-                if (sWidth > 0 && sHeight > 0) {
-                     // The sub-crop box is relative to the canvas. So we draw the *main* crop into the canvas,
-                     // and the sub-crop box overlays it. The final output will combine them, but for visual
-                     // editing, the canvas should show the whole quadrant.
-                    const mainSx = mainCrop.x * videoWidth;
-                    const mainSy = mainCrop.y * videoHeight;
-                    const mainSWidth = mainCrop.w * videoWidth;
-                    const mainSHeight = mainCrop.h * videoHeight;
-                    ctx.drawImage(sourceVideo, mainSx, mainSy, mainSWidth, mainSHeight, 0, 0, destWidth, destHeight);
+
+                if (mainSWidth > 0 && mainSHeight > 0) {
+                     if (chromaKeyEnabled) {
+                        const offscreenCanvas = offscreenCanvases[i];
+                        const offscreenCtx = offscreenCanvas.getContext('2d');
+                        
+                        // Resize offscreen canvas if needed
+                        if (offscreenCanvas.width !== mainSWidth || offscreenCanvas.height !== mainSHeight) {
+                            offscreenCanvas.width = mainSWidth;
+                            offscreenCanvas.height = mainSHeight;
+                        }
+
+                        offscreenCtx.drawImage(sourceVideo, mainSx, mainSy, mainSWidth, mainSHeight, 0, 0, mainSWidth, mainSHeight);
+                        const frame = offscreenCtx.getImageData(0, 0, mainSWidth, mainSHeight);
+                        const data = frame.data;
+                        const { r, g, b } = chromaKeyColor;
+
+                        for (let j = 0; j < data.length; j += 4) {
+                            const red = data[j];
+                            const green = data[j + 1];
+                            const blue = data[j + 2];
+                            
+                            const distance = Math.sqrt(
+                                Math.pow(red - r, 2) +
+                                Math.pow(green - g, 2) +
+                                Math.pow(blue - b, 2)
+                            );
+
+                            if (distance < chromaKeyThreshold) {
+                                data[j + 3] = 0; // Set alpha to 0
+                            }
+                        }
+                        offscreenCtx.putImageData(frame, 0, 0);
+                        ctx.drawImage(offscreenCanvas, 0, 0, destWidth, destHeight);
+                     } else {
+                        ctx.drawImage(sourceVideo, mainSx, mainSy, mainSWidth, mainSHeight, 0, 0, destWidth, destHeight);
+                     }
                 }
             });
             
@@ -174,6 +213,67 @@ document.addEventListener('DOMContentLoaded', () => {
         drawFrame();
     }
     
+    // --- Chroma Key Logic ---
+    function hexToRgb(hex) {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16)
+        } : null;
+    }
+
+    chromaKeyToggle.addEventListener('change', (e) => {
+        chromaKeyEnabled = e.target.checked;
+    });
+
+    chromaKeyColorInput.addEventListener('input', (e) => {
+        const rgb = hexToRgb(e.target.value);
+        if (rgb) {
+            chromaKeyColor = rgb;
+        }
+    });
+
+    chromaKeyThresholdInput.addEventListener('input', (e) => {
+        chromaKeyThreshold = parseInt(e.target.value, 10);
+        thresholdValueSpan.textContent = chromaKeyThreshold;
+    });
+
+    eyedropperBtn.addEventListener('click', () => {
+        const overlay = document.getElementById('cropper-overlay');
+        overlay.style.cursor = 'crosshair';
+        
+        const pickColor = (e) => {
+            const rect = sourceVideo.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
+
+            const videoX = (x / rect.width) * sourceVideo.videoWidth;
+            const videoY = (y / rect.height) * sourceVideo.videoHeight;
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = 1;
+            tempCanvas.height = 1;
+            const tempCtx = tempCanvas.getContext('2d');
+
+            tempCtx.drawImage(sourceVideo, videoX, videoY, 1, 1, 0, 0, 1, 1);
+            const pixel = tempCtx.getImageData(0, 0, 1, 1).data;
+            
+            chromaKeyColor = { r: pixel[0], g: pixel[1], b: pixel[2] };
+            const hexColor = `#${pixel[0].toString(16).padStart(2, '0')}${pixel[1].toString(16).padStart(2, '0')}${pixel[2].toString(16).padStart(2, '0')}`;
+            chromaKeyColorInput.value = hexColor;
+
+            overlay.style.cursor = '';
+            overlay.removeEventListener('click', pickColor);
+        };
+        
+        overlay.addEventListener('click', pickColor, { once: true });
+    });
+
+
     // --- Main Cropper Logic ---
     function makeDraggable(element, onDrag) {
         let isDragging = false;

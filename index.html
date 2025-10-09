@@ -16,6 +16,24 @@
             <label for="video-upload" class="upload-button">Choose Video</label>
         </div>
 
+        <div id="chroma-key-controls" style="display: none;">
+            <h3>Chroma Key (Background Removal)</h3>
+            <div>
+                <input type="checkbox" id="chroma-key-toggle">
+                <label for="chroma-key-toggle">Enable Background Removal</label>
+            </div>
+            <div>
+                <label for="chroma-key-color">Background Color:</label>
+                <input type="color" id="chroma-key-color" value="#00ff00">
+                <button id="eyedropper-btn">Pick Color</button>
+            </div>
+            <div>
+                <label for="chroma-key-threshold">Threshold:</label>
+                <input type="range" id="chroma-key-threshold" min="0" max="200" value="40">
+                <span id="threshold-value">40</span>
+            </div>
+        </div>
+
         <div id="cropper-container" style="display: none;">
             <div class="video-wrapper">
                 <video id="source-video" muted loop playsinline></video>

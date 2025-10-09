@@ -33,6 +33,50 @@ h1 {
     background-color: #166fe5;
 }
 
+#chroma-key-controls {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    text-align: left;
+}
+
+#chroma-key-controls h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+#chroma-key-controls div {
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+#chroma-key-controls label {
+    font-weight: 500;
+}
+
+#eyedropper-btn {
+    padding: 5px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #f0f2f5;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
+#eyedropper-btn:hover {
+    background-color: #e4e6e9;
+}
+
+#chroma-key-threshold {
+    flex-grow: 1;
+}
+
 #cropper-container {
     margin-top: 20px;
     margin-bottom: 20px;
