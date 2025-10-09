@@ -20,6 +20,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const mainThresholdInput = document.getElementById('chroma-key-threshold-main');
     const mainThresholdValue = document.getElementById('threshold-value-main');
     
+    // Advanced feature toggles
+    const advancedChromaToggle = document.getElementById('advanced-chroma-toggle');
+    const outlineDetectionToggle = document.getElementById('outline-detection-toggle');
+
     // Remove individual threshold controls as we now have one main one
     document.getElementById('chroma-key-threshold')?.parentElement.remove();
 
@@ -44,6 +48,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let cropBoxElements = [];
 
     let chromaKeyEnabled = false;
+    let advancedModeEnabled = false;
+    let useOutlineDetection = true;
+    let autoDetectedColors = [{}, {}, {}, {}]; // Per-quadrant auto color
+
     let chromaKeyColors = [
         { r: 0, g: 255, b: 0, enabled: true },
         { r: 0, g: 0, b: 255, enabled: false }
@@ -53,6 +61,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const blackLineThreshold = 50; // R, G, B values must all be below this to be a "black line"
 
     // --- Initial UI Setup ---
+    advancedChromaToggle.addEventListener('change', (e) => {
+        advancedModeEnabled = e.target.checked;
+        // Hide manual color pickers in advanced mode to reduce confusion
+        colorControl1.style.display = advancedModeEnabled ? 'none' : 'flex';
+        const color2Visible = chromaKeyColors[1].enabled && !advancedModeEnabled;
+        colorControl2.style.display = color2Visible ? 'flex' : 'none';
+        addColorBtn.style.display = (chromaKeyColors[1].enabled || advancedModeEnabled) ? 'none' : 'inline-block';
+    });
+    outlineDetectionToggle.addEventListener('change', (e) => {
+        useOutlineDetection = e.target.checked;
+    });
+
     mainThresholdInput.addEventListener('input', (e) => {
         chromaKeyThreshold = parseInt(e.target.value, 10);
         mainThresholdValue.textContent = chromaKeyThreshold;
@@ -163,12 +183,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Flood Fill Background Removal ---
-    function floodFillRemoveBackground(imageData) {
+    function floodFillRemoveBackground(imageData, backgroundColor) {
         const { data, width, height } = imageData;
-        if (width === 0 || height === 0) return;
+        if (width === 0 || height === 0 || !backgroundColor) return;
 
         const visited = new Uint8Array(width * height);
         const isOutline = new Uint8Array(width * height);
+        const { r: bgR, g: bgG, b: bgB } = backgroundColor;
 
         // 1. Identify outline pixels
         for (let y = 0; y < height; y++) {
@@ -180,15 +201,23 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         
-        // 2. Flood fill from corners
+        // 2. Flood fill from corners if they match the background color
         const queue = [];
         const startPoints = [
-            [0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]
+            [0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1],
+            [Math.floor(width/2), 0], [Math.floor(width/2), height-1],
+            [0, Math.floor(height/2)], [width-1, Math.floor(height/2)]
         ];
 
         startPoints.forEach(([x, y]) => {
+            const i = (y * width + x) * 4;
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const distance = Math.sqrt((r - bgR)**2 + (g - bgG)**2 + (b - bgB)**2);
+
             const idx = y * width + x;
-            if (!visited[idx] && !isOutline[idx]) {
+            if (!visited[idx] && !isOutline[idx] && distance < chromaKeyThreshold) {
                 queue.push([x, y]);
                 visited[idx] = 1;
             }
@@ -216,11 +245,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Simpler Chroma Key for uniform backgrounds ---
-    function simpleChromaKeyRemove(imageData) {
+    function simpleChromaKeyRemove(imageData, colors) {
         const { data, width, height } = imageData;
         if (width === 0 || height === 0) return;
         
-        const activeColors = chromaKeyColors.filter(c => c.enabled);
+        const activeColors = colors.filter(c => c.enabled && c.r !== undefined);
         if (activeColors.length === 0) return;
 
         for (let i = 0; i < data.length; i += 4) {
@@ -236,6 +265,50 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         }
+    }
+
+    function detectBackgroundColor(imageData, quadrantIndex) {
+        const { data, width, height } = imageData;
+        if (width < 2 || height < 2) return null;
+        
+        const samplePoints = [
+            [1, 1], [width - 2, 1], // Top-left, top-right
+            [1, height - 2], [width - 2, height - 2] // Bottom-left, bottom-right
+        ];
+
+        let r_sum = 0, g_sum = 0, b_sum = 0, count = 0;
+
+        for (const [x, y] of samplePoints) {
+            const i = (y * width + x) * 4;
+            // Avoid black/outline colors in samples
+            if (data[i] > blackLineThreshold || data[i+1] > blackLineThreshold || data[i+2] > blackLineThreshold) {
+                r_sum += data[i];
+                g_sum += data[i+1];
+                b_sum += data[i+2];
+                count++;
+            }
+        }
+
+        if (count === 0) return autoDetectedColors[quadrantIndex] || null;
+
+        const avgColor = {
+            r: Math.round(r_sum / count),
+            g: Math.round(g_sum / count),
+            b: Math.round(b_sum / count),
+            enabled: true
+        };
+
+        // Smooth the color change over time
+        const prevColor = autoDetectedColors[quadrantIndex];
+        if (prevColor && prevColor.r !== undefined) {
+            const smoothing = 0.9;
+            avgColor.r = Math.round(prevColor.r * smoothing + avgColor.r * (1 - smoothing));
+            avgColor.g = Math.round(prevColor.g * smoothing + avgColor.g * (1 - smoothing));
+            avgColor.b = Math.round(prevColor.b * smoothing + avgColor.b * (1 - smoothing));
+        }
+        
+        autoDetectedColors[quadrantIndex] = avgColor;
+        return avgColor;
     }
 
 
@@ -270,7 +343,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (mainSWidth > 0 && mainSHeight > 0) {
                      if (chromaKeyEnabled) {
                         const offscreenCanvas = offscreenCanvases[i];
-                        const offscreenCtx = offscreenCanvas.getContext('2d');
+                        const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
                         
                         if (offscreenCanvas.width !== mainSWidth || offscreenCanvas.height !== mainSHeight) {
                             offscreenCanvas.width = mainSWidth;
@@ -280,8 +353,23 @@ document.addEventListener('DOMContentLoaded', () => {
                         offscreenCtx.drawImage(sourceVideo, mainSx, mainSy, mainSWidth, mainSHeight, 0, 0, mainSWidth, mainSHeight);
                         const frame = offscreenCtx.getImageData(0, 0, mainSWidth, mainSHeight);
                         
-                        // Use the new flood fill algorithm
-                        floodFillRemoveBackground(frame);
+                        if (advancedModeEnabled) {
+                            const detectedColor = detectBackgroundColor(frame, i);
+                            if (detectedColor) {
+                                if (useOutlineDetection) {
+                                    floodFillRemoveBackground(frame, detectedColor);
+                                } else {
+                                    simpleChromaKeyRemove(frame, [detectedColor]);
+                                }
+                            }
+                        } else {
+                             if (useOutlineDetection) {
+                                const primaryColor = chromaKeyColors.find(c => c.enabled);
+                                if(primaryColor) floodFillRemoveBackground(frame, primaryColor);
+                            } else {
+                                simpleChromaKeyRemove(frame, chromaKeyColors);
+                            }
+                        }
                         
                         offscreenCtx.putImageData(frame, 0, 0);
                         ctx.drawImage(offscreenCanvas, 0, 0, destWidth, destHeight);

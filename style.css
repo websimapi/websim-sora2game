@@ -48,19 +48,17 @@ h1 {
     text-align: center;
 }
 
-#chroma-key-controls div {
-    margin-bottom: 10px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
 #chroma-key-controls .color-control-group {
     width: 100%;
     justify-content: space-between;
     flex-wrap: nowrap; /* Prevent wrapping of color inputs/buttons */
     row-gap: 5px; /* Add gap for wrapped items */
+}
+
+.advanced-controls {
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid #e4e6e9;
 }
 
 #chroma-key-controls .threshold-control {
