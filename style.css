@@ -171,6 +171,8 @@ h1 {
     background-color: #000;
     margin-bottom: 10px;
     line-height: 0; /* remove space below canvas */
+    overflow: hidden; /* Keep crop handles inside */
+    border-radius: 6px;
 }
 
 .quadrant-cropper-wrapper canvas {

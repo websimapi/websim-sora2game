@@ -78,12 +78,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const canvas = quadrantElement.querySelector('canvas');
             const labelInput = quadrantElement.querySelector('.label-input');
             
-            // Set canvas dimensions based on video aspect ratio
+            // Set canvas dimensions based on cropped video quadrant
             const videoWidth = sourceVideo.videoWidth;
             const videoHeight = sourceVideo.videoHeight;
-            canvas.width = videoWidth;
-            canvas.height = videoHeight;
-            canvas.style.aspectRatio = `${videoWidth} / ${videoHeight}`;
+
+            const sWidth = quadrantsData[index].crop.w * videoWidth;
+            const sHeight = quadrantsData[index].crop.h * videoHeight;
+
+            canvas.width = sWidth;
+            canvas.height = sHeight;
+            canvas.style.aspectRatio = `${sWidth} / ${sHeight}`;
 
             canvasElements.push(canvas);
 
@@ -121,11 +125,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            const videoWidth = sourceVideo.videoWidth;
+            const videoHeight = sourceVideo.videoHeight;
+
             contexts.forEach((ctx, i) => {
-                if (canvasElements[i].width > 0 && canvasElements[i].height > 0) {
-                    // Draw the full video frame onto each canvas
-                    ctx.drawImage(sourceVideo, 0, 0, canvasElements[i].width, canvasElements[i].height);
+                if (!canvasElements[i] || canvasElements[i].width === 0 || canvasElements[i].height === 0) {
+                    return;
                 }
+                const crop = quadrantsData[i].crop;
+                const sx = crop.x * videoWidth;
+                const sy = crop.y * videoHeight;
+                const sWidth = crop.w * videoWidth;
+                const sHeight = crop.h * videoHeight;
+                
+                // Clear and draw the cropped portion of the video
+                ctx.clearRect(0, 0, canvasElements[i].width, canvasElements[i].height);
+                ctx.drawImage(sourceVideo, sx, sy, sWidth, sHeight, 0, 0, canvasElements[i].width, canvasElements[i].height);
             });
             
             animationFrameId = requestAnimationFrame(drawFrame);
