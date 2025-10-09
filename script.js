@@ -20,6 +20,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const mainThresholdInput = document.getElementById('chroma-key-threshold-main');
     const mainThresholdValue = document.getElementById('threshold-value-main');
     const selectRegionBtn = document.getElementById('select-region-btn');
+    const regionColorInfo = document.getElementById('region-color-info');
+    const regionColorCount = document.getElementById('region-color-count');
+    const clearRegionColorsBtn = document.getElementById('clear-region-colors-btn');
     
     // Advanced feature toggles
     const advancedChromaToggle = document.getElementById('advanced-chroma-toggle');
@@ -61,6 +64,22 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const blackLineThreshold = 50; // R, G, B values must all be below this to be a "black line"
 
+    function resetChromaKeyColors() {
+        chromaKeyColors = [
+            { r: 0, g: 255, b: 0, enabled: true },
+            { r: 0, g: 0, b: 255, enabled: false }
+        ];
+        chromaKeyColorInput1.value = '#00ff00';
+        chromaKeyColorInput2.value = '#0000ff';
+        regionColorInfo.style.display = 'none';
+        colorControl1.style.display = '';
+        const color2Visible = chromaKeyColors[1].enabled && !advancedModeEnabled;
+        colorControl2.style.display = color2Visible ? 'flex' : 'none';
+        addColorBtn.style.display = (chromaKeyColors[1].enabled || advancedModeEnabled) ? 'none' : 'inline-block';
+    }
+
+    clearRegionColorsBtn.addEventListener('click', resetChromaKeyColors);
+
     // --- Initial UI Setup ---
     advancedChromaToggle.addEventListener('change', (e) => {
         advancedModeEnabled = e.target.checked;
@@ -69,6 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const color2Visible = chromaKeyColors[1].enabled && !advancedModeEnabled;
         colorControl2.style.display = color2Visible ? 'flex' : 'none';
         addColorBtn.style.display = (chromaKeyColors[1].enabled || advancedModeEnabled) ? 'none' : 'inline-block';
+        regionColorInfo.style.display = 'none';
     });
     outlineDetectionToggle.addEventListener('change', (e) => {
         useOutlineDetection = e.target.checked;
@@ -536,33 +556,47 @@ document.addEventListener('DOMContentLoaded', () => {
             const videoH = (boxRect.height / overlayRect.height) * sourceVideo.videoHeight;
 
             const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = Math.round(videoW);
-            tempCanvas.height = Math.round(videoH);
+            const canvasWidth = Math.max(1, Math.round(videoW));
+            const canvasHeight = Math.max(1, Math.round(videoH));
+            tempCanvas.width = canvasWidth;
+            tempCanvas.height = canvasHeight;
             const tempCtx = tempCanvas.getContext('2d');
             
-            tempCtx.drawImage(sourceVideo, videoX, videoY, videoW, videoH, 0, 0, tempCanvas.width, tempCanvas.height);
+            tempCtx.drawImage(sourceVideo, videoX, videoY, videoW, videoH, 0, 0, canvasWidth, canvasHeight);
             
             try {
-                const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                const imageData = tempCtx.getImageData(0, 0, canvasWidth, canvasHeight);
                 const data = imageData.data;
-                let totalR = 0, totalG = 0, totalB = 0;
                 
+                const colorSet = new Set();
+                const quantizationFactor = 4; // 16 levels per channel (4096 total colors)
+
                 for (let i = 0; i < data.length; i += 4) {
-                    totalR += data[i];
-                    totalG += data[i+1];
-                    totalB += data[i+2];
+                    const r = data[i] >> quantizationFactor;
+                    const g = data[i+1] >> quantizationFactor;
+                    const b = data[i+2] >> quantizationFactor;
+                    // Create a single number to represent the quantized color for the Set
+                    colorSet.add((r << 16) | (g << 8) | b);
                 }
+
+                if (colorSet.size === 0) return;
+
+                const newColors = [];
+                for (const packedColor of colorSet) {
+                    const r = ((packedColor >> 16) & 0xFF) << quantizationFactor;
+                    const g = ((packedColor >> 8) & 0xFF) << quantizationFactor;
+                    const b = (packedColor & 0xFF) << quantizationFactor;
+                    newColors.push({ r, g, b, enabled: true });
+                }
+
+                chromaKeyColors = newColors;
                 
-                const pixelCount = data.length / 4;
-                const avgR = Math.round(totalR / pixelCount);
-                const avgG = Math.round(totalG / pixelCount);
-                const avgB = Math.round(totalB / pixelCount);
-                
-                const avgColor = { r: avgR, g: avgG, b: avgB };
-                chromaKeyColors[0] = { ...chromaKeyColors[0], ...avgColor };
-                
-                const hexColor = `#${avgR.toString(16).padStart(2, '0')}${avgG.toString(16).padStart(2, '0')}${avgB.toString(16).padStart(2, '0')}`;
-                chromaKeyColorInput1.value = hexColor;
+                // Update UI
+                colorControl1.style.display = 'none';
+                colorControl2.style.display = 'none';
+                addColorBtn.style.display = 'none';
+                regionColorInfo.style.display = 'flex';
+                regionColorCount.textContent = `${chromaKeyColors.length} colors selected from region.`;
 
             } catch (err) {
                 console.error("Error processing selected region:", err);

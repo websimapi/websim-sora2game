@@ -48,9 +48,31 @@ h1 {
     text-align: center;
 }
 
-#chroma-key-controls .color-control-group {
-    width: 100%;
+#region-color-info {
+    display: flex;
     justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    background-color: #e7f3ff;
+    border-radius: 4px;
+    margin-top: 10px;
+    color: #1877f2;
+}
+
+#clear-region-colors-btn {
+    padding: 3px 8px;
+    border: 1px solid #1877f2;
+    border-radius: 4px;
+    background-color: white;
+    color: #1877f2;
+    cursor: pointer;
+    font-size: 0.8em;
+}
+
+#chroma-key-controls .color-control-group {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
     flex-wrap: nowrap; /* Prevent wrapping of color inputs/buttons */
     row-gap: 5px; /* Add gap for wrapped items */
 }
