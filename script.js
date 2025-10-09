@@ -28,8 +28,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const advancedChromaToggle = document.getElementById('advanced-chroma-toggle');
     const outlineDetectionToggle = document.getElementById('outline-detection-toggle');
 
-    // Remove individual threshold controls as we now have one main one
-    document.getElementById('chroma-key-threshold')?.parentElement.remove();
+    // This line references an old element ID that no longer exists and can be safely removed.
+    // document.getElementById('chroma-key-threshold')?.parentElement.remove();
 
 
     // Main cropper lines
