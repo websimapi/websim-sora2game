@@ -8,7 +8,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // New cropper elements
     const cropperContainer = document.getElementById('cropper-container');
-    const cropperOverlay = document.getElementById('cropper-overlay');
 
     let animationFrameId = null;
     let quadrantsData = [
@@ -34,7 +33,6 @@ document.addEventListener('DOMContentLoaded', () => {
         
         sourceVideo.addEventListener('loadedmetadata', () => {
             cropperContainer.style.display = 'block';
-            cropperOverlay.style.display = 'none'; // Hide main overlay
             renderQuadrants();
             saveButton.style.display = 'inline-block';
             outputContainer.style.display = 'none';
