@@ -8,8 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // New cropper elements
     const cropperContainer = document.getElementById('cropper-container');
-    const verticalLine = document.getElementById('vertical-line');
-    const horizontalLine = document.getElementById('horizontal-line');
+    const cropperOverlay = document.getElementById('cropper-overlay');
 
     let animationFrameId = null;
     let quadrantsData = [
@@ -19,8 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 3, name: 'Bottom-Right', label: '', crop: { x: 0.5, y: 0.5, w: 0.5, h: 0.5 } }
     ];
     let canvasElements = [];
-    let splitX = 0.5; // 0 to 1
-    let splitY = 0.5; // 0 to 1
+    let cropBoxElements = [];
 
     videoUpload.addEventListener('change', (event) => {
         const file = event.target.files[0];
@@ -36,13 +34,42 @@ document.addEventListener('DOMContentLoaded', () => {
         
         sourceVideo.addEventListener('loadedmetadata', () => {
             cropperContainer.style.display = 'block';
-            resetCropLines();
+            initializeCropBoxes();
             renderQuadrants();
             saveButton.style.display = 'inline-block';
             outputContainer.style.display = 'none';
             sourceVideo.play().catch(e => console.error("Autoplay failed:", e));
         });
     });
+
+    function initializeCropBoxes() {
+        cropperOverlay.innerHTML = '';
+        cropBoxElements = [];
+        quadrantsData.forEach((quad, index) => {
+            const box = document.createElement('div');
+            box.className = 'crop-box';
+            box.dataset.index = index;
+            box.innerHTML = `
+                <div class="crop-handle top-left"></div>
+                <div class="crop-handle top-right"></div>
+                <div class="crop-handle bottom-left"></div>
+                <div class="crop-handle bottom-right"></div>
+            `;
+            cropperOverlay.appendChild(box);
+            cropBoxElements.push(box);
+            updateBoxFromData(index);
+            makeInteractive(box, index);
+        });
+    }
+
+    function updateBoxFromData(index) {
+        const box = cropBoxElements[index];
+        const crop = quadrantsData[index].crop;
+        box.style.left = `${crop.x * 100}%`;
+        box.style.top = `${crop.y * 100}%`;
+        box.style.width = `${crop.w * 100}%`;
+        box.style.height = `${crop.h * 100}%`;
+    }
 
     function renderQuadrants() {
         quadrantsContainer.innerHTML = '';
@@ -69,7 +96,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const videoHeight = sourceVideo.videoHeight;
             canvas.width = videoWidth * quadrant.crop.w;
             canvas.height = videoHeight * quadrant.crop.h;
-            canvas.style.aspectRatio = `${canvas.width} / ${canvas.height}`;
+            // A width of 0 can cause issues with aspect-ratio
+            if(canvas.width > 0 && canvas.height > 0) {
+                 canvas.style.aspectRatio = `${canvas.width} / ${canvas.height}`;
+            }
 
             canvasElements.push(canvas);
 
@@ -97,11 +127,15 @@ document.addEventListener('DOMContentLoaded', () => {
             contexts.forEach((ctx, i) => {
                 const q = quadrantsData[i];
                 const crop = q.crop;
-                ctx.drawImage(
-                    sourceVideo,
-                    crop.x * vW, crop.y * vH, crop.w * vW, crop.h * vH,
-                    0, 0, canvasElements[i].width, canvasElements[i].height
-                );
+                if (canvasElements[i].width > 0 && canvasElements[i].height > 0) {
+                    ctx.drawImage(
+                        sourceVideo,
+                        crop.x * vW, crop.y * vH, crop.w * vW, crop.h * vH,
+                        0, 0, canvasElements[i].width, canvasElements[i].height
+                    );
+                } else {
+                    ctx.clearRect(0, 0, canvasElements[i].width, canvasElements[i].height);
+                }
             });
             
             animationFrameId = requestAnimationFrame(drawFrame);
@@ -110,85 +144,119 @@ document.addEventListener('DOMContentLoaded', () => {
         drawFrame();
     }
 
-    function updateCropData() {
-        // Top-Left
-        quadrantsData[0].crop = { x: 0, y: 0, w: splitX, h: splitY };
-        // Top-Right
-        quadrantsData[1].crop = { x: splitX, y: 0, w: 1 - splitX, h: splitY };
-        // Bottom-Left
-        quadrantsData[2].crop = { x: 0, y: splitY, w: splitX, h: 1 - splitY };
-        // Bottom-Right
-        quadrantsData[3].crop = { x: splitX, y: splitY, w: 1 - splitX, h: 1 - splitY };
+    function updateCropData(index, newCrop) {
+        quadrantsData[index].crop = newCrop;
+        
+        // Update canvas size
+        const canvas = canvasElements[index];
+        const videoWidth = sourceVideo.videoWidth;
+        const videoHeight = sourceVideo.videoHeight;
+        const newCanvasWidth = videoWidth * newCrop.w;
+        const newCanvasHeight = videoHeight * newCrop.h;
 
-        // Update canvas sizes
-        canvasElements.forEach((canvas, i) => {
-            const q = quadrantsData[i];
-            const videoWidth = sourceVideo.videoWidth;
-            const videoHeight = sourceVideo.videoHeight;
-            canvas.width = videoWidth * q.crop.w;
-            canvas.height = videoHeight * q.crop.h;
-            canvas.style.aspectRatio = `${canvas.width} / ${canvas.height}`;
-        });
+        if (canvas.width !== newCanvasWidth) canvas.width = newCanvasWidth;
+        if (canvas.height !== newCanvasHeight) canvas.height = newCanvasHeight;
+       
+        if(newCanvasWidth > 0 && newCanvasHeight > 0) {
+            canvas.style.aspectRatio = `${newCanvasWidth} / ${newCanvasHeight}`;
+        }
     }
     
-    function makeDraggable(line, orientation) {
-        let isDragging = false;
-
-        function onDown(e) {
-            isDragging = true;
-            line.classList.add('dragging');
-            document.body.style.cursor = orientation === 'vertical' ? 'ew-resize' : 'ns-resize';
-            e.preventDefault();
-        }
-
-        function onUp() {
-            if (!isDragging) return;
-            isDragging = false;
-            line.classList.remove('dragging');
-            document.body.style.cursor = 'default';
-        }
+    function makeInteractive(box, index) {
+        let mode = '';
+        let startX, startY, startLeft, startTop, startWidth, startHeight;
+        const rect = () => cropperOverlay.getBoundingClientRect();
         
-        function onMove(e) {
-            if (!isDragging) return;
+        function onDown(e) {
             e.preventDefault();
-            const rect = sourceVideo.getBoundingClientRect();
-            
+            e.stopPropagation();
+
+            cropBoxElements.forEach(b => b.classList.remove('active'));
+            box.classList.add('active');
+
+            const target = e.target;
+            mode = target.classList.contains('crop-handle') ? 'resize' : 'move';
+            if (target.classList.contains('crop-handle')) {
+                mode += ' ' + Array.from(target.classList).filter(c => c !== 'crop-handle').join(' ');
+            }
+
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-
-            if (orientation === 'vertical') {
-                let newX = (clientX - rect.left) / rect.width;
-                splitX = Math.max(0.05, Math.min(0.95, newX)); // Clamp between 5% and 95%
-                line.style.left = `${splitX * 100}%`;
-            } else {
-                let newY = (clientY - rect.top) / rect.height;
-                splitY = Math.max(0.05, Math.min(0.95, newY));
-                line.style.top = `${splitY * 100}%`;
-            }
-            updateCropData();
+            
+            startX = clientX;
+            startY = clientY;
+            
+            const boxRect = box.getBoundingClientRect();
+            const parentRect = rect();
+            startLeft = (boxRect.left - parentRect.left) / parentRect.width;
+            startTop = (boxRect.top - parentRect.top) / parentRect.height;
+            startWidth = boxRect.width / parentRect.width;
+            startHeight = boxRect.height / parentRect.height;
+            
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('touchmove', onMove, { passive: false });
+            document.addEventListener('mouseup', onUp);
+            document.addEventListener('touchend', onUp);
         }
 
-        line.addEventListener('mousedown', onDown);
-        line.addEventListener('touchstart', onDown);
+        function onMove(e) {
+            e.preventDefault();
+            if (!mode) return;
 
-        document.addEventListener('mouseup', onUp);
-        document.addEventListener('touchend', onUp);
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            const parentRect = rect();
+            const dx = (clientX - startX) / parentRect.width;
+            const dy = (clientY - startY) / parentRect.height;
 
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('touchmove', onMove, { passive: false });
+            let { x, y, w, h } = quadrantsData[index].crop;
+            
+            if (mode.startsWith('move')) {
+                x = Math.max(0, Math.min(1 - w, startLeft + dx));
+                y = Math.max(0, Math.min(1 - h, startTop + dy));
+            } else if (mode.startsWith('resize')) {
+                const minSize = 0.05; // 5% minimum size
+                if (mode.includes('left')) {
+                    const newW = startWidth - dx;
+                    if (newW > minSize) {
+                        x = startLeft + dx;
+                        w = newW;
+                    }
+                }
+                if (mode.includes('top')) {
+                    const newH = startHeight - dy;
+                    if (newH > minSize) {
+                        y = startTop + dy;
+                        h = newH;
+                    }
+                }
+                if (mode.includes('right')) {
+                    w = Math.max(minSize, startWidth + dx);
+                }
+                if (mode.includes('bottom')) {
+                    h = Math.max(minSize, startHeight + dy);
+                }
+                // Boundary checks
+                if (x + w > 1) w = 1 - x;
+                if (y + h > 1) h = 1 - y;
+            }
+
+            const newCrop = { x, y, w, h };
+            updateCropData(index, newCrop);
+            updateBoxFromData(index);
+        }
+        
+        function onUp() {
+            mode = '';
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('touchmove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            document.removeEventListener('touchend', onUp);
+        }
+        
+        box.addEventListener('mousedown', onDown);
+        box.addEventListener('touchstart', onDown);
     }
-
-    makeDraggable(verticalLine, 'vertical');
-    makeDraggable(horizontalLine, 'horizontal');
-
-    function resetCropLines() {
-        splitX = 0.5;
-        splitY = 0.5;
-        verticalLine.style.left = '50%';
-        horizontalLine.style.top = '50%';
-        updateCropData();
-    }
-
 
     saveButton.addEventListener('click', () => {
         const outputData = quadrantsData.map(q => ({

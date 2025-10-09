@@ -57,8 +57,48 @@ h1 {
     left: 0;
     width: 100%;
     height: 100%;
-    cursor: crosshair;
 }
+
+.crop-box {
+    position: absolute;
+    box-sizing: border-box;
+    border: 2px solid rgba(24, 119, 242, 0.8);
+    background-color: rgba(24, 119, 242, 0.2);
+    cursor: move;
+}
+
+.crop-box.active {
+    border-style: dashed;
+    z-index: 10;
+}
+
+.crop-handle {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background-color: rgba(255, 255, 255, 0.9);
+    border: 1px solid #1877f2;
+    border-radius: 50%;
+}
+
+.crop-handle.top-left { top: -6px; left: -6px; cursor: nwse-resize; }
+.crop-handle.top-right { top: -6px; right: -6px; cursor: nesw-resize; }
+.crop-handle.bottom-left { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.crop-handle.bottom-right { bottom: -6px; right: -6px; cursor: nwse-resize; }
+
+
+/* For better touch interaction */
+@media (pointer: coarse) {
+    .crop-handle {
+        width: 20px;
+        height: 20px;
+    }
+    .crop-handle.top-left { top: -10px; left: -10px; }
+    .crop-handle.top-right { top: -10px; right: -10px; }
+    .crop-handle.bottom-left { bottom: -10px; left: -10px; }
+    .crop-handle.bottom-right { bottom: -10px; right: -10px; }
+}
+
 
 .drag-line {
     position: absolute;
@@ -77,6 +117,7 @@ h1 {
     height: 100%;
     cursor: ew-resize;
     transform: translateX(-50%);
+    display: none; /* Hiding old lines */
 }
 
 #horizontal-line {
@@ -86,6 +127,7 @@ h1 {
     height: 4px;
     cursor: ns-resize;
     transform: translateY(-50%);
+    display: none; /* Hiding old lines */
 }
 
 /* For better touch interaction */
