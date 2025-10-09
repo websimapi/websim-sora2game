@@ -8,10 +8,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const cropperContainer = document.getElementById('cropper-container');
     const chromaKeyControls = document.getElementById('chroma-key-controls');
     const chromaKeyToggle = document.getElementById('chroma-key-toggle');
-    const chromaKeyColorInput = document.getElementById('chroma-key-color');
     const chromaKeyThresholdInput = document.getElementById('chroma-key-threshold');
     const thresholdValueSpan = document.getElementById('threshold-value');
-    const eyedropperBtn = document.getElementById('eyedropper-btn');
+    
+    // Updated Chroma Key elements
+    const chromaKeyColorInput1 = document.getElementById('chroma-key-color-1');
+    const chromaKeyColorInput2 = document.getElementById('chroma-key-color-2');
+    const colorControl2 = document.getElementById('color-control-2');
+    const addColorBtn = document.getElementById('add-color-btn');
+    const removeColor2Btn = document.getElementById('remove-color-2-btn');
+    const eyedropperBtns = document.querySelectorAll('.eyedropper-btn');
 
     // Main cropper lines
     const verticalLine = document.getElementById('vertical-line');
@@ -33,7 +39,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let cropBoxElements = [];
 
     let chromaKeyEnabled = false;
-    let chromaKeyColor = { r: 0, g: 255, b: 0 };
+    let chromaKeyColors = [
+        { r: 0, g: 255, b: 0, enabled: true },
+        { r: 0, g: 0, b: 255, enabled: false }
+    ];
     let chromaKeyThreshold = 40;
 
     videoUpload.addEventListener('change', (event) => {
@@ -182,20 +191,29 @@ document.addEventListener('DOMContentLoaded', () => {
                         offscreenCtx.drawImage(sourceVideo, mainSx, mainSy, mainSWidth, mainSHeight, 0, 0, mainSWidth, mainSHeight);
                         const frame = offscreenCtx.getImageData(0, 0, mainSWidth, mainSHeight);
                         const data = frame.data;
-                        const { r, g, b } = chromaKeyColor;
+                        const activeColors = chromaKeyColors.filter(c => c.enabled);
 
                         for (let j = 0; j < data.length; j += 4) {
                             const red = data[j];
                             const green = data[j + 1];
                             const blue = data[j + 2];
                             
-                            const distance = Math.sqrt(
-                                Math.pow(red - r, 2) +
-                                Math.pow(green - g, 2) +
-                                Math.pow(blue - b, 2)
-                            );
+                            let removePixel = false;
+                            for (const color of activeColors) {
+                                const { r, g, b } = color;
+                                const distance = Math.sqrt(
+                                    Math.pow(red - r, 2) +
+                                    Math.pow(green - g, 2) +
+                                    Math.pow(blue - b, 2)
+                                );
 
-                            if (distance < chromaKeyThreshold) {
+                                if (distance < chromaKeyThreshold) {
+                                    removePixel = true;
+                                    break;
+                                }
+                            }
+                            
+                            if (removePixel) {
                                 data[j + 3] = 0; // Set alpha to 0
                             }
                         }
@@ -227,10 +245,17 @@ document.addEventListener('DOMContentLoaded', () => {
         chromaKeyEnabled = e.target.checked;
     });
 
-    chromaKeyColorInput.addEventListener('input', (e) => {
+    chromaKeyColorInput1.addEventListener('input', (e) => {
         const rgb = hexToRgb(e.target.value);
         if (rgb) {
-            chromaKeyColor = rgb;
+            chromaKeyColors[0] = { ...chromaKeyColors[0], ...rgb };
+        }
+    });
+
+    chromaKeyColorInput2.addEventListener('input', (e) => {
+        const rgb = hexToRgb(e.target.value);
+        if (rgb) {
+            chromaKeyColors[1] = { ...chromaKeyColors[1], ...rgb };
         }
     });
 
@@ -239,38 +264,64 @@ document.addEventListener('DOMContentLoaded', () => {
         thresholdValueSpan.textContent = chromaKeyThreshold;
     });
 
-    eyedropperBtn.addEventListener('click', () => {
-        const overlay = document.getElementById('cropper-overlay');
-        overlay.style.cursor = 'crosshair';
-        
-        const pickColor = (e) => {
-            const rect = sourceVideo.getBoundingClientRect();
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    addColorBtn.addEventListener('click', () => {
+        colorControl2.style.display = 'flex';
+        chromaKeyColors[1].enabled = true;
+        addColorBtn.style.display = 'none';
+    });
 
-            const x = clientX - rect.left;
-            const y = clientY - rect.top;
+    removeColor2Btn.addEventListener('click', () => {
+        colorControl2.style.display = 'none';
+        chromaKeyColors[1].enabled = false;
+        addColorBtn.style.display = 'inline-block';
+    });
 
-            const videoX = (x / rect.width) * sourceVideo.videoWidth;
-            const videoY = (y / rect.height) * sourceVideo.videoHeight;
 
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = 1;
-            tempCanvas.height = 1;
-            const tempCtx = tempCanvas.getContext('2d');
-
-            tempCtx.drawImage(sourceVideo, videoX, videoY, 1, 1, 0, 0, 1, 1);
-            const pixel = tempCtx.getImageData(0, 0, 1, 1).data;
+    eyedropperBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const colorIndex = parseInt(btn.dataset.colorIndex, 10);
+            const overlay = document.getElementById('cropper-overlay');
+            overlay.style.cursor = 'crosshair';
             
-            chromaKeyColor = { r: pixel[0], g: pixel[1], b: pixel[2] };
-            const hexColor = `#${pixel[0].toString(16).padStart(2, '0')}${pixel[1].toString(16).padStart(2, '0')}${pixel[2].toString(16).padStart(2, '0')}`;
-            chromaKeyColorInput.value = hexColor;
+            const pickColor = (e) => {
+                const rect = sourceVideo.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
-            overlay.style.cursor = '';
-            overlay.removeEventListener('click', pickColor);
-        };
-        
-        overlay.addEventListener('click', pickColor, { once: true });
+                const x = clientX - rect.left;
+                const y = clientY - rect.top;
+
+                const videoX = (x / rect.width) * sourceVideo.videoWidth;
+                const videoY = (y / rect.height) * sourceVideo.videoHeight;
+
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = 1;
+                tempCanvas.height = 1;
+                const tempCtx = tempCanvas.getContext('2d');
+
+                tempCtx.drawImage(sourceVideo, videoX, videoY, 1, 1, 0, 0, 1, 1);
+                const pixel = tempCtx.getImageData(0, 0, 1, 1).data;
+                
+                const newColor = { r: pixel[0], g: pixel[1], b: pixel[2] };
+                chromaKeyColors[colorIndex - 1] = { ...chromaKeyColors[colorIndex - 1], ...newColor };
+                
+                const hexColor = `#${pixel[0].toString(16).padStart(2, '0')}${pixel[1].toString(16).padStart(2, '0')}${pixel[2].toString(16).padStart(2, '0')}`;
+                
+                if (colorIndex === 1) {
+                    chromaKeyColorInput1.value = hexColor;
+                } else {
+                    chromaKeyColorInput2.value = hexColor;
+                }
+
+                overlay.style.cursor = '';
+                overlay.removeEventListener('click', pickColor);
+                // For touch, we might need a different event
+                overlay.removeEventListener('touchend', pickColor);
+            };
+            
+            overlay.addEventListener('click', pickColor, { once: true });
+            overlay.addEventListener('touchend', pickColor, { once: true });
+        });
     });
 
 

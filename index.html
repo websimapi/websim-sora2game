@@ -22,11 +22,19 @@
                 <input type="checkbox" id="chroma-key-toggle">
                 <label for="chroma-key-toggle">Enable Background Removal</label>
             </div>
-            <div>
-                <label for="chroma-key-color">Background Color:</label>
-                <input type="color" id="chroma-key-color" value="#00ff00">
-                <button id="eyedropper-btn">Pick Color</button>
+            <div class="color-control-group" id="color-control-1">
+                <label for="chroma-key-color-1">Background Color 1:</label>
+                <input type="color" id="chroma-key-color-1" value="#00ff00">
+                <button class="eyedropper-btn" data-color-index="1">Pick Color</button>
             </div>
+            <div class="color-control-group" id="color-control-2" style="display: none;">
+                <label for="chroma-key-color-2">Background Color 2:</label>
+                <input type="color" id="chroma-key-color-2" value="#0000ff">
+                <button class="eyedropper-btn" data-color-index="2">Pick Color</button>
+                <button id="remove-color-2-btn">Remove</button>
+            </div>
+            <button id="add-color-btn">Add second color</button>
+
             <div>
                 <label for="chroma-key-threshold">Threshold:</label>
                 <input type="range" id="chroma-key-threshold" min="0" max="200" value="40">

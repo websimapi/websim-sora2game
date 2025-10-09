@@ -56,6 +56,11 @@ h1 {
     flex-wrap: wrap;
 }
 
+#chroma-key-controls .color-control-group {
+    width: 100%;
+    justify-content: space-between;
+}
+
 #chroma-key-controls label {
     font-weight: 500;
 }
@@ -71,6 +76,26 @@ h1 {
 
 #eyedropper-btn:hover {
     background-color: #e4e6e9;
+}
+
+.eyedropper-btn, #remove-color-2-btn, #add-color-btn {
+    padding: 5px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #f0f2f5;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
+.eyedropper-btn:hover, #remove-color-2-btn:hover, #add-color-btn:hover {
+    background-color: #e4e6e9;
+}
+
+#add-color-btn {
+    background-color: #e7f3ff;
+    border-color: #1877f2;
+    color: #1877f2;
+    font-weight: 500;
 }
 
 #chroma-key-threshold {
