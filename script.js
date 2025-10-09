@@ -285,8 +285,21 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const pickColor = (e) => {
                 const rect = sourceVideo.getBoundingClientRect();
-                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+                let touch;
+                if (e.changedTouches && e.changedTouches.length > 0) {
+                    touch = e.changedTouches[0];
+                }
+
+                const clientX = touch ? touch.clientX : e.clientX;
+                const clientY = touch ? touch.clientY : e.clientY;
+
+                if (typeof clientX === 'undefined' || typeof clientY === 'undefined') {
+                    overlay.style.cursor = '';
+                    overlay.removeEventListener('click', pickColor);
+                    overlay.removeEventListener('touchend', pickColor);
+                    return;
+                }
 
                 const x = clientX - rect.left;
                 const y = clientY - rect.top;
